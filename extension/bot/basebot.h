@@ -1,7 +1,6 @@
 #ifndef EXT_BASE_BOT_H_
 #define EXT_BASE_BOT_H_
 
-#include <array>
 #include <list>
 #include <queue>
 #include <string>
@@ -53,27 +52,34 @@ public:
 	float GetTimeSinceLastSpawn() const;
 
 	/**
-	 * @brief Turns this instance into a "human puppet": the bot AI drives a human player's own character
-	 * (AFK autopilot). The extension does not run user commands for it; instead the human's own commands
-	 * are replaced in the PlayerRunCommand hook, and the client's view follows the bot's aim.
+	 * @brief Makes this instance a "human puppet" and wakes it up: the bot AI drives a human player's own
+	 * character (AFK autopilot). The extension does not run user commands for it; instead the human's own
+	 * commands are replaced in the PlayerRunCommand hook, and the client's view follows the bot's aim.
 	 * Fake client only actions (join commands, client convars, chat, string commands) are skipped.
-	 * Call right after the instance is constructed for a human client.
-	 * @return False if this mod has no PlayerRunCommand hook available (the instance must be destroyed).
+	 * Call right after the instance is constructed for a human client, or again to wake a sleeping puppet.
+	 * @return False if this mod has no PlayerRunCommand hook available (a new instance must be destroyed)
+	 * or the puppet is already awake.
 	 */
 	bool BecomeHumanPuppet();
-	// True if this instance drives a human player's character (AFK autopilot).
+	/**
+	 * @brief Puts a human puppet to sleep: the human plays again, the AI stops thinking.
+	 * The instance is kept until the client disconnects: other bots keep pointers to it (known entities, aim).
+	 */
+	void SleepHumanPuppet();
+	// True if this instance belongs to a human player (AFK autopilot), awake or sleeping.
 	inline bool IsHumanPuppet() const { return m_humanpuppet; }
+	// True if this human puppet is awake: the AI drives the human's character.
+	inline bool IsPuppetActive() const { return m_humanpuppet && m_puppetactive; }
 	// True once the human gave input while puppeted: the manager releases the player on its next frame.
 	inline bool IsPuppetReleaseRequested() const { return m_puppetrelease; }
 
 private:
 	void AddHooks();
-	// True if the human's own user command has input (keys, movement or mouse) while puppeted.
+	// True if the human's own user command has input (keys, movement, weapon switch or mouse) while puppeted.
 	bool PuppetHumanGaveInput(const CUserCmd* usercmd) const;
-	// Remembers view angles sent to the client, to tell network lag apart from mouse movement.
-	void PuppetRememberAngles(const QAngle& angles);
+	// Logs the AI state of an awake puppet every 2 seconds (sm_navbot_debug_puppet).
+	void PuppetDebugLog();
 	inline static bool s_canHookRunCmd{ false }; // PlayerRunCommand offset is known (needed by puppets)
-	static constexpr std::size_t PUPPET_ANGLE_HISTORY = 128U;
 
 	void Hook_Spawn();
 	void Hook_Spawn_Post();
@@ -365,12 +371,11 @@ private:
 	IntervalTimer m_lasthurttimer; // timer for tracking the last time the bot took damage while alive
 	IntervalTimer m_lastkilledtimer; // timer for tracing the last time the bot was killed
 	CMeshNavigator* m_activeNavigator;
-	bool m_humanpuppet{ false }; // drives a human player's character (AFK autopilot)
+	bool m_humanpuppet{ false }; // belongs to a human player (AFK autopilot)
+	bool m_puppetactive{ false }; // awake: the AI drives the human's character
 	bool m_puppetrelease{ false }; // the human gave input: give control back
 	bool m_puppetrunhooked{ false }; // PlayerRunCommand hook added for this puppet
-	float m_puppetstarttime{ 0.0f };
-	std::array<QAngle, PUPPET_ANGLE_HISTORY> m_puppetangles{}; // ring buffer of view angles sent to the client
-	std::size_t m_puppetanglecount{ 0U }; // total angles remembered (index = count % size)
+	float m_puppetnextlog{ 0.0f }; // next sm_navbot_debug_puppet log
 	const CNavPrerequisite* m_lastPrerequisite; // Last prerequisite this bot used
 	CountdownTimer m_clearLastPrerequisiteTimer;
 

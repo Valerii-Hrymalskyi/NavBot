@@ -166,13 +166,13 @@ void CExtManager::Frame()
 	}
 	*/
 
-	// AFK autopilot: give control back to humans who gave input. Done here and not in the PlayerRunCommand
-	// hook, because the bot instance (and its hooks) can't be destroyed from inside its own hook.
+	// AFK autopilot: give control back to humans who gave input (the PlayerRunCommand hook only flags it,
+	// plugins are notified from here).
 	for (int client = 1; client <= gpGlobals->maxClients; client++)
 	{
 		CBaseBot* bot = GetBotByIndex(client);
 
-		if (bot != nullptr && bot->IsHumanPuppet() && bot->IsPuppetReleaseRequested())
+		if (bot != nullptr && bot->IsPuppetActive() && bot->IsPuppetReleaseRequested())
 		{
 			ReleasePlayer(client, true);
 		}
@@ -493,8 +493,17 @@ bool CExtManager::TakeOverPlayer(const int client)
 		return false;
 	}
 
-	if (GetBotByIndex(client) != nullptr) // already a NavBot or a puppet
+	CBaseBot* existing = GetBotByIndex(client);
+
+	if (existing != nullptr)
 	{
+		// a sleeping puppet of this human (taken over before): wake it up; a NavBot or an awake puppet: no
+		if (existing->IsHumanPuppet() && existing->BecomeHumanPuppet())
+		{
+			smutils->LogMessage(myself, "AFK autopilot took over client #%i (%s) again.", client, gameplayer->GetName());
+			return true;
+		}
+
 		return false;
 	}
 
@@ -521,16 +530,16 @@ bool CExtManager::TakeOverPlayer(const int client)
 
 bool CExtManager::ReleasePlayer(const int client, const bool byinput)
 {
-	auto it = std::find_if(m_bots.begin(), m_bots.end(), [&client](const std::unique_ptr<CBaseBot>& object) {
-		return object->GetIndex() == client && object->IsHumanPuppet();
-	});
+	CBaseBot* bot = GetBotByIndex(client);
 
-	if (it == m_bots.end())
+	if (bot == nullptr || !bot->IsPuppetActive())
 	{
 		return false;
 	}
 
-	m_bots.erase(it); // the destructor removes the bot hooks from the human's entity
+	// Sleep, don't destroy: other bots keep pointers to this instance (known entities, aim target).
+	// It is destroyed with the other instances of the client when the client disconnects.
+	bot->SleepHumanPuppet();
 
 #ifndef NO_SOURCEPAWN_API
 	if (m_onplayerreleasedforward != nullptr && m_onplayerreleasedforward->GetFunctionCount() > 0)
@@ -547,7 +556,7 @@ bool CExtManager::ReleasePlayer(const int client, const bool byinput)
 bool CExtManager::IsPlayerTakenOver(const int client) const
 {
 	CBaseBot* bot = GetBotByIndex(client);
-	return bot != nullptr && bot->IsHumanPuppet();
+	return bot != nullptr && bot->IsPuppetActive();
 }
 
 void CExtManager::AddBot(std::string* newbotname, edict_t** newbotedict)

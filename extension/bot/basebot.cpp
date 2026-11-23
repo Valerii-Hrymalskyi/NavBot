@@ -18,6 +18,7 @@
 #endif // EXT_VPROF_ENABLED
 
 ConVar cvar_bot_difficulty("sm_navbot_skill_level", "0", FCVAR_NONE, "Skill level group to use when selecting bot difficulty. Setting this to negative to generate a random profile for each bot.");
+static ConVar cvar_debug_puppet("sm_navbot_debug_puppet", "0", FCVAR_GAMEDLL, "1 = log the AI state of players driven by the AFK autopilot every 2 seconds.");
 ConVar cvar_bot_disable_behavior("sm_navbot_debug_disable_gamemode_ai", "0", FCVAR_CHEAT | FCVAR_GAMEDLL, "When set to 1, disables game mode behavior for the bot AI.");
 
 CBaseBot::CBaseBot(edict_t* edict) : CBaseExtPlayer(edict),
@@ -110,6 +111,11 @@ void CBaseBot::PlayerThink()
 
 	CBaseExtPlayer::PlayerThink(); // Call base class function first
 
+	if (m_humanpuppet && !m_puppetactive) // sleeping AFK autopilot: the human plays
+	{
+		return;
+	}
+
 	m_debugtextoffset = 0;
 
 	if (IsDebugging(BOTDEBUG_TASKS))
@@ -168,8 +174,44 @@ void CBaseBot::PlayerThink()
 	// This needs to be the last call on a bot think cycle
 	BuildUserCommand(buttons);
 	control->OnPostRunCommand();
+
+	if (m_humanpuppet && cvar_debug_puppet.GetBool())
+	{
+		PuppetDebugLog();
+	}
 	// Execute the command at the end of the tick since the BOT AI might queue commands on this tick
 	ExecuteQueuedCommands(); // Run queue commands
+}
+
+void CBaseBot::PuppetDebugLog()
+{
+	if (gpGlobals->curtime < m_puppetnextlog)
+	{
+		return;
+	}
+
+	m_puppetnextlog = gpGlobals->curtime + 2.0f;
+
+	const CKnownEntity* threat = GetSensorInterface()->GetPrimaryKnownThreat(ISensor::ONLY_VISIBLE_THREATS);
+	CBaseEntity* threatentity = threat != nullptr ? threat->GetEntity() : nullptr;
+	const CBotWeapon* weapon = GetInventoryInterface()->GetActiveBotWeapon();
+
+	const ICombat* combat = GetCombatInterface();
+	const ICombat::CombatData& data = combat->GetCachedCombatData();
+	const IPlayerController* control = GetControlInterface();
+	CBaseEntity* aimtarget = control->GetAimAtTarget();
+	const int shouldattack = threat != nullptr ? static_cast<int>(GetBehaviorInterface()->ShouldAttack(this, threat)) : -1;
+	const QAngle& eyes = GetEyeAngles();
+
+	smutils->LogMessage(myself, "[AFK autopilot] #%i %s | task: %s | visible threat: %i | weapon: %s | buttons: %#x | cmd view: %.0f %.0f | eyes: %.0f %.0f",
+		GetIndex(), GetClientName(), GetBehaviorInterface()->GetTaskDebugString(),
+		threatentity != nullptr ? UtilHelpers::IndexOfEntity(threatentity) : 0,
+		weapon != nullptr ? weapon->GetClassname().c_str() : "none",
+		m_cmd.buttons, m_cmd.viewangles.x, m_cmd.viewangles.y, eyes.x, eyes.y);
+	smutils->LogMessage(myself, "[AFK autopilot] #%i combat: in %i, should aim %i, visible %i, can fire %i | aim target: %i, on target %i | should attack: %i | weapon control: %i",
+		GetIndex(), data.in_combat ? 1 : 0, combat->ShouldAim() ? 1 : 0, data.is_visible ? 1 : 0, data.can_fire ? 1 : 0,
+		aimtarget != nullptr ? UtilHelpers::IndexOfEntity(aimtarget) : 0, control->IsAimOnTarget() ? 1 : 0,
+		shouldattack, GetMovementInterface()->NeedsWeaponControl() ? 1 : 0);
 }
 
 void CBaseBot::NavAreaChanged(CNavArea* old, CNavArea* current)
