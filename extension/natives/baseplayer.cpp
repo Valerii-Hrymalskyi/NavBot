@@ -1,6 +1,7 @@
 #include NAVBOT_PCH_FILE
 #include <util/pawnutils.h>
 #include <extplayer.h>
+#include <bot/basebot.h>
 #include <navmesh/nav_mesh.h>
 #include "baseplayer.h"
 
@@ -16,7 +17,8 @@ namespace natives::baseplayer
 			return 0;
 		}
 
-		return player->IsExtensionBot() ? 1 : 0;
+		// a human driven by the AFK autopilot is not a NavBot
+		return (player->IsExtensionBot() && !player->MyBotPointer()->IsHumanPuppet()) ? 1 : 0;
 	}
 
 	static cell_t Native_GetLastKnownNavArea(IPluginContext* context, const cell_t* params)

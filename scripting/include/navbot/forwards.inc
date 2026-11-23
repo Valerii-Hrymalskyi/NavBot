@@ -98,3 +98,12 @@ forward void OnNavBotEnterCombat(NavBot bot, int threat, int activeWeapon);
  * @param activeWeapon	Entity index of the weapon the bot is currently holding.
  */
 forward void OnNavBotThreatVisible(NavBot bot, int threat, int activeWeapon);
+
+/**
+ * AFK autopilot: called when a human player taken over by NavBotManager.TakeOverPlayer gets the control back.
+ * Also called on map end (every taken over player is released then).
+ *
+ * @param client		Client index.
+ * @param byInput		True if the human gave input (keys, movement or mouse), false if released by a plugin or map end.
+ */
+forward void OnNavBotPlayerReleased(int client, bool byInput);

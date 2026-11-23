@@ -14,6 +14,9 @@ class CBasePlayer;
 
 // Need this for CUserCmd class definition
 #include <usercmd.h>
+#include <in_buttons.h>
+#include <algorithm>
+#include <cmath>
 
 #ifdef EXT_DEBUG
 static ConVar cvar_print_bot_hooks("sm_navbot_debug_bot_hooks", "0", FCVAR_GAMEDLL, "Prints console messages when the hooked game func callbacks are called.");
@@ -94,11 +97,15 @@ bool CBaseBot::InitHooks(SourceMod::IGameConfig* gd_navbot, SourceMod::IGameConf
 	if (!UtilHelpers::gamedata::GetOffset(gd_sdkhooks, gd_navbot, offset, "Weapon_Equip")) { return false; }
 	SH_MANUALHOOK_RECONFIGURE(CBaseBot_Weapon_Equip, offset, 0, 0);
 
-	// This mod needs to hook CBasePlayer::PlayerRunCommand
-	if (extension->ShouldHookRunPlayerCommand())
+	// CBasePlayer::PlayerRunCommand: hooked on every bot when this mod needs it, and on human puppets (AFK autopilot)
+	if (UtilHelpers::gamedata::GetOffset(gd_sdktools, gd_navbot, offset, "PlayerRunCmd"))
 	{
-		if (!UtilHelpers::gamedata::GetOffset(gd_sdktools, gd_navbot, offset, "PlayerRunCmd")) { return false; }
 		SH_MANUALHOOK_RECONFIGURE(CBaseBot_PlayerRunCommand, offset, 0, 0);
+		CBaseBot::s_canHookRunCmd = true;
+	}
+	else if (extension->ShouldHookRunPlayerCommand())
+	{
+		return false;
 	}
 
 	szValue = gd_navbot->GetKeyValue("HookCanBeAutobalanced");
@@ -270,8 +277,124 @@ void CBaseBot::Hook_PhysicsSimulate()
 	RETURN_META(MRES_IGNORED);
 }
 
+bool CBaseBot::BecomeHumanPuppet()
+{
+	if (!CBaseBot::s_canHookRunCmd)
+	{
+		return false;
+	}
+
+	m_humanpuppet = true;
+	m_puppetrelease = false;
+	m_puppetstarttime = gpGlobals->curtime;
+	m_isfirstspawn = true; // FirstSpawn sets fake client convars (model, skin...): never run it on a human
+
+	if (!extension->ShouldHookRunPlayerCommand()) // otherwise AddHooks already added it
+	{
+		m_shhooks.push_back(SH_ADD_MANUALHOOK(CBaseBot_PlayerRunCommand, GetEntity(), SH_MEMBER(this, &CBaseBot::Hook_PlayerRunCommand), false));
+	}
+
+	m_puppetrunhooked = true;
+
+	// Start from the human's current view, so the camera does not jump.
+	m_viewangles = GetEyeAngles();
+	PuppetRememberAngles(m_viewangles);
+
+	// Start the AI as if the bot had just spawned here.
+	m_spawnTime = gpGlobals->curtime;
+	m_homepos = GetAbsOrigin();
+	Reset();
+	return true;
+}
+
+void CBaseBot::PuppetRememberAngles(const QAngle& angles)
+{
+	m_puppetangles[m_puppetanglecount % PUPPET_ANGLE_HISTORY] = angles;
+	m_puppetanglecount++;
+}
+
+// Difference between two angles in degrees, in the range -180..180.
+static float PuppetAngleDelta(const float a, const float b)
+{
+	float delta = std::fmod(a - b, 360.0f);
+
+	if (delta > 180.0f)
+	{
+		delta -= 360.0f;
+	}
+	else if (delta < -180.0f)
+	{
+		delta += 360.0f;
+	}
+
+	return delta;
+}
+
+bool CBaseBot::PuppetHumanGaveInput(const CUserCmd* usercmd) const
+{
+	// Holding the scoreboard key is not taking control back.
+	constexpr int IGNORED_BUTTONS = IN_SCORE;
+
+	if ((usercmd->buttons & ~IGNORED_BUTTONS) != 0 || usercmd->impulse != 0 || usercmd->weaponselect != 0 ||
+		usercmd->forwardmove != 0.0f || usercmd->sidemove != 0.0f || usercmd->upmove != 0.0f)
+	{
+		return true;
+	}
+
+	// Mouse: the client's view lags behind the angles we snap it to (network latency), so the human moved the
+	// mouse only if the command's angles are far from every angle sent recently. Ignored right after the takeover.
+	constexpr float MOUSE_GRACE_TIME = 1.0f;
+	constexpr float MOUSE_TOLERANCE = 3.0f; // degrees
+
+	if (gpGlobals->curtime - m_puppetstarttime < MOUSE_GRACE_TIME || m_puppetanglecount == 0U)
+	{
+		return false;
+	}
+
+	const std::size_t count = std::min(m_puppetanglecount, PUPPET_ANGLE_HISTORY);
+
+	for (std::size_t i = 0U; i < count; i++)
+	{
+		const QAngle& sent = m_puppetangles[i];
+
+		if (std::fabs(PuppetAngleDelta(usercmd->viewangles.x, sent.x)) <= MOUSE_TOLERANCE &&
+			std::fabs(PuppetAngleDelta(usercmd->viewangles.y, sent.y)) <= MOUSE_TOLERANCE)
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
 void CBaseBot::Hook_PlayerRunCommand(CUserCmd* usercmd, IMoveHelper* movehelper)
 {
+	if (m_humanpuppet)
+	{
+		// AFK autopilot: replace the human's own command with the bot's until the human gives input again.
+		if (m_puppetrelease || PuppetHumanGaveInput(usercmd))
+		{
+			m_puppetrelease = true; // the manager destroys this instance on its next frame
+			RETURN_META(MRES_IGNORED);
+		}
+
+		const CBotCmd* botcmd = GetUserCommand();
+		// command_number, tick_count and random_seed stay the human's: they belong to the client's
+		// command stream and to lag compensation.
+		usercmd->viewangles = botcmd->viewangles;
+		usercmd->forwardmove = botcmd->forwardmove;
+		usercmd->sidemove = botcmd->sidemove;
+		usercmd->upmove = botcmd->upmove;
+		usercmd->buttons = botcmd->buttons;
+		usercmd->impulse = botcmd->impulse;
+		usercmd->weaponselect = botcmd->weaponselect;
+		usercmd->weaponsubtype = botcmd->weaponsubtype;
+		// Make the client's camera follow the bot's aim.
+		SnapEyeAngles(botcmd->viewangles);
+		PuppetRememberAngles(botcmd->viewangles);
+		RETURN_META(MRES_HANDLED);
+	}
+
 	if (!RunPlayerCommands())
 	{
 		RETURN_META(MRES_IGNORED);

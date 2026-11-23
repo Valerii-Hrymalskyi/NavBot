@@ -36,6 +36,11 @@ public:
 			{
 				const CBaseBot* bot = ptr.get();
 
+				if (bot->IsHumanPuppet()) // a human driven by the AFK autopilot is not a NavBot target
+				{
+					continue;
+				}
+
 				if ((info->flags & COMMAND_FILTER_ALIVE) != 0)
 				{
 					if (!bot->IsAlive())

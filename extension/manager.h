@@ -94,8 +94,25 @@ public:
 	 * @return Bot pointer if found or NULL.
 	 */
 	CBaseBot* FindBotByName(const char* name) const;
-	// Returns true if the given client index is a NavBot instance.
+	// Returns true if the given client index is a NavBot instance (human puppets are not NavBots).
 	bool IsNavBot(const int client) const;
+	/**
+	 * @brief AFK autopilot: lets the bot AI drive a human player's own character until the human gives input
+	 * (keys, movement or mouse) or ReleasePlayer is called.
+	 * @param client Client index of a human player in game.
+	 * @return True if the AI took over, false if the client is not a human in game, is already taken over,
+	 * or this mod can't hook PlayerRunCommand.
+	 */
+	bool TakeOverPlayer(const int client);
+	/**
+	 * @brief Gives control back to a human player taken over by TakeOverPlayer.
+	 * @param client Client index.
+	 * @param byinput True if the human gave input (for the OnNavBotPlayerReleased forward).
+	 * @return True if the player was taken over and is now released.
+	 */
+	bool ReleasePlayer(const int client, const bool byinput = false);
+	// Returns true if the given client is a human player driven by the bot AI (AFK autopilot).
+	bool IsPlayerTakenOver(const int client) const;
 	/**
 	 * @brief Adds a new NavBot instance.
 	 * @param newbotname Optional bot name override.
@@ -586,6 +603,7 @@ private:
 	SourceMod::IForward* m_onbotcomputepathfailed;
 	SourceMod::IForward* m_onbotentercombat;
 	SourceMod::IForward* m_onbotenemyvisible;
+	SourceMod::IForward* m_onplayerreleasedforward; // AFK autopilot: a human puppet was released
 #endif // !NO_SOURCEPAWN_API
 
 	size_t m_nextbotname; // Index of the next bot name to use

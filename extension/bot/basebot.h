@@ -1,6 +1,7 @@
 #ifndef EXT_BASE_BOT_H_
 #define EXT_BASE_BOT_H_
 
+#include <array>
 #include <list>
 #include <queue>
 #include <string>
@@ -51,8 +52,28 @@ public:
 	// How many seconds have passed since the bot last spawned.
 	float GetTimeSinceLastSpawn() const;
 
+	/**
+	 * @brief Turns this instance into a "human puppet": the bot AI drives a human player's own character
+	 * (AFK autopilot). The extension does not run user commands for it; instead the human's own commands
+	 * are replaced in the PlayerRunCommand hook, and the client's view follows the bot's aim.
+	 * Fake client only actions (join commands, client convars, chat, string commands) are skipped.
+	 * Call right after the instance is constructed for a human client.
+	 * @return False if this mod has no PlayerRunCommand hook available (the instance must be destroyed).
+	 */
+	bool BecomeHumanPuppet();
+	// True if this instance drives a human player's character (AFK autopilot).
+	inline bool IsHumanPuppet() const { return m_humanpuppet; }
+	// True once the human gave input while puppeted: the manager releases the player on its next frame.
+	inline bool IsPuppetReleaseRequested() const { return m_puppetrelease; }
+
 private:
 	void AddHooks();
+	// True if the human's own user command has input (keys, movement or mouse) while puppeted.
+	bool PuppetHumanGaveInput(const CUserCmd* usercmd) const;
+	// Remembers view angles sent to the client, to tell network lag apart from mouse movement.
+	void PuppetRememberAngles(const QAngle& angles);
+	inline static bool s_canHookRunCmd{ false }; // PlayerRunCommand offset is known (needed by puppets)
+	static constexpr std::size_t PUPPET_ANGLE_HISTORY = 128U;
 
 	void Hook_Spawn();
 	void Hook_Spawn_Post();
@@ -207,6 +228,9 @@ public:
 	*/
 	void DelayedFakeClientCommand(const char* command)
 	{
+		// A human puppet must never send commands to the human's own client (chat, join team, etc.)
+		if (m_humanpuppet) { return; }
+
 		m_cmdqueue.emplace(command);
 	}
 
@@ -341,6 +365,12 @@ private:
 	IntervalTimer m_lasthurttimer; // timer for tracking the last time the bot took damage while alive
 	IntervalTimer m_lastkilledtimer; // timer for tracing the last time the bot was killed
 	CMeshNavigator* m_activeNavigator;
+	bool m_humanpuppet{ false }; // drives a human player's character (AFK autopilot)
+	bool m_puppetrelease{ false }; // the human gave input: give control back
+	bool m_puppetrunhooked{ false }; // PlayerRunCommand hook added for this puppet
+	float m_puppetstarttime{ 0.0f };
+	std::array<QAngle, PUPPET_ANGLE_HISTORY> m_puppetangles{}; // ring buffer of view angles sent to the client
+	std::size_t m_puppetanglecount{ 0U }; // total angles remembered (index = count % size)
 	const CNavPrerequisite* m_lastPrerequisite; // Last prerequisite this bot used
 	CountdownTimer m_clearLastPrerequisiteTimer;
 

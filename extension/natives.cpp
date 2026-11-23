@@ -187,7 +187,64 @@ namespace natives
 
 	cell_t GetNavBotCount(IPluginContext* context, const cell_t* params)
 	{
-		return static_cast<cell_t>(extmanager->GetAllBots().size());
+		cell_t count = 0;
+
+		for (auto& bot : extmanager->GetAllBots())
+		{
+			if (!bot->IsHumanPuppet()) // humans driven by the AFK autopilot are not NavBots
+			{
+				count++;
+			}
+		}
+
+		return count;
+	}
+
+	static bool IsHumanClientIndex(IPluginContext* context, int client)
+	{
+		if (client <= 0 || client > gpGlobals->maxClients)
+		{
+			context->ReportError("Invalid client index %i!", client);
+			return false;
+		}
+
+		return true;
+	}
+
+	cell_t TakeOverPlayer(IPluginContext* context, const cell_t* params)
+	{
+		int client = static_cast<int>(params[1]);
+
+		if (!IsHumanClientIndex(context, client))
+		{
+			return 0;
+		}
+
+		return extmanager->TakeOverPlayer(client) ? 1 : 0;
+	}
+
+	cell_t ReleasePlayer(IPluginContext* context, const cell_t* params)
+	{
+		int client = static_cast<int>(params[1]);
+
+		if (!IsHumanClientIndex(context, client))
+		{
+			return 0;
+		}
+
+		return extmanager->ReleasePlayer(client, false) ? 1 : 0;
+	}
+
+	cell_t IsPlayerTakenOver(IPluginContext* context, const cell_t* params)
+	{
+		int client = static_cast<int>(params[1]);
+
+		if (!IsHumanClientIndex(context, client))
+		{
+			return 0;
+		}
+
+		return extmanager->IsPlayerTakenOver(client) ? 1 : 0;
 	}
 
 	cell_t BuildPathSimple(IPluginContext* context, const cell_t* params)
@@ -340,6 +397,9 @@ namespace natives
 			{"NavBotManager.IsNavBot", IsNavBot},
 			{"FireNavBotSoundEvent", FireNavBotSoundEvent},
 			{"NavBotManager.GetNavBotCount", GetNavBotCount},
+			{"NavBotManager.TakeOverPlayer", TakeOverPlayer},
+			{"NavBotManager.ReleasePlayer", ReleasePlayer},
+			{"NavBotManager.IsPlayerTakenOver", IsPlayerTakenOver},
 			{"NavBotManager.AreBotsSupported", Native_AreBotsSupported},
 			{"NavBotManager.GetBasePlayer", GetBasePlayerByIndex},
 			{"NavBotManager.NotifyRoundRestart", NotifyRoundRestart},

@@ -23,6 +23,9 @@ namespace natives
 	cell_t IsNavBot(IPluginContext* context, const cell_t* params);
 	cell_t FireNavBotSoundEvent(IPluginContext* context, const cell_t* params);
 	cell_t GetNavBotCount(IPluginContext* context, const cell_t* params);
+	cell_t TakeOverPlayer(IPluginContext* context, const cell_t* params);
+	cell_t ReleasePlayer(IPluginContext* context, const cell_t* params);
+	cell_t IsPlayerTakenOver(IPluginContext* context, const cell_t* params);
 	cell_t BuildPathSimple(IPluginContext* context, const cell_t* params);
 	cell_t GetPathSegment(IPluginContext* context, const cell_t* params);
 	cell_t GetPathSegmentCount(IPluginContext* context, const cell_t* params);

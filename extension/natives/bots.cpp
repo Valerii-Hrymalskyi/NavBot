@@ -800,7 +800,7 @@ cell_t natives::bots::GetNavBotByIndex(IPluginContext* context, const cell_t* pa
 
 	CBaseBot* bot = extmanager->GetBotByIndex(client);
 
-	if (!bot)
+	if (!bot || bot->IsHumanPuppet()) // a human driven by the AFK autopilot is not a NavBot
 	{
 		return 0;
 	}

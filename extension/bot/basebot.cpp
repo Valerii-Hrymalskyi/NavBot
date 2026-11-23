@@ -118,8 +118,9 @@ void CBaseBot::PlayerThink()
 	}
 
 	// this needs to be before the sleep check since spectator players are dead
-	// bots created by plugins will have to be handled by the 
-	if (--m_joingametime <= 0)
+	// bots created by plugins will have to be handled by the
+	// a human puppet is a player already in the game: never send join commands to the human
+	if (!m_humanpuppet && --m_joingametime <= 0)
 	{
 		if (!HasJoinedGame() && CanJoinGame())
 		{
@@ -432,6 +433,11 @@ void CBaseBot::RunUserCommand(CBotCmd* ucmd)
 
 #endif // EXT_DEBUG
 
+	if (m_humanpuppet) // the human's own commands run; the PlayerRunCommand hook replaces their content
+	{
+		return;
+	}
+
 	if (!extension->ShouldCallRunPlayerCommand()) // this mod already calls runplayermove on bots, we send the bot actual cmd on the hook
 	{
 		return;
@@ -593,6 +599,8 @@ void CBaseBot::TryJoinGame()
 */
 void CBaseBot::SelectWeaponByCommand(const char* szclassname) const
 {
+	if (m_humanpuppet) { return; } // would run on the human's own client
+
 	char command[128];
 	ke::SafeSprintf(command, sizeof(command), "use %s", szclassname);
 	serverpluginhelpers->ClientCommand(GetEdict(), command);
@@ -600,6 +608,8 @@ void CBaseBot::SelectWeaponByCommand(const char* szclassname) const
 
 void CBaseBot::FakeClientCommand(const char* command) const
 {
+	if (m_humanpuppet) { return; } // would run on the human's own client
+
 	serverpluginhelpers->ClientCommand(GetEdict(), command);
 }
 

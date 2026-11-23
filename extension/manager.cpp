@@ -55,6 +55,7 @@ CExtManager::CExtManager()
 	m_onbotcomputepathfailed = nullptr;
 	m_onbotentercombat = nullptr;
 	m_onbotenemyvisible = nullptr;
+	m_onplayerreleasedforward = nullptr;
 #endif // !NO_SOURCEPAWN_API
 }
 
@@ -75,6 +76,7 @@ CExtManager::~CExtManager()
 	forwards->ReleaseForward(m_onbotcomputepathfailed);
 	forwards->ReleaseForward(m_onbotentercombat);
 	forwards->ReleaseForward(m_onbotenemyvisible);
+	forwards->ReleaseForward(m_onplayerreleasedforward);
 #endif // !NO_SOURCEPAWN_API
 
 	// assign NULL to the smart ptr to detele the existing instance
@@ -163,6 +165,18 @@ void CExtManager::Frame()
 		bot->PlayerThink();
 	}
 	*/
+
+	// AFK autopilot: give control back to humans who gave input. Done here and not in the PlayerRunCommand
+	// hook, because the bot instance (and its hooks) can't be destroyed from inside its own hook.
+	for (int client = 1; client <= gpGlobals->maxClients; client++)
+	{
+		CBaseBot* bot = GetBotByIndex(client);
+
+		if (bot != nullptr && bot->IsHumanPuppet() && bot->IsPuppetReleaseRequested())
+		{
+			ReleasePlayer(client, true);
+		}
+	}
 
 	m_mod->Frame();
 
@@ -286,6 +300,15 @@ void CExtManager::OnMapStart()
 
 void CExtManager::OnMapEnd()
 {
+	// AFK autopilot: humans stay on the server across map changes, give them their control back
+	for (int client = 1; client <= gpGlobals->maxClients; client++)
+	{
+		if (IsPlayerTakenOver(client))
+		{
+			ReleasePlayer(client, false);
+		}
+	}
+
 	TheNavMesh->OnMapEnd();
 	m_mod->OnMapEnd();
 }
@@ -453,11 +476,78 @@ bool CExtManager::IsNavBot(const int client) const
 	{
 		if (botptr.get()->GetIndex() == client)
 		{
-			return true;
+			return !botptr->IsHumanPuppet(); // a human driven by the AI is not a NavBot
 		}
 	}
 
 	return false;
+}
+
+bool CExtManager::TakeOverPlayer(const int client)
+{
+	SourceMod::IGamePlayer* gameplayer = playerhelpers->GetGamePlayer(client);
+
+	if (gameplayer == nullptr || !gameplayer->IsInGame() || gameplayer->IsFakeClient() ||
+		gameplayer->IsSourceTV() || gameplayer->IsReplay())
+	{
+		return false;
+	}
+
+	if (GetBotByIndex(client) != nullptr) // already a NavBot or a puppet
+	{
+		return false;
+	}
+
+	edict_t* edict = gameplayer->GetEdict();
+
+	if (edict == nullptr)
+	{
+		return false;
+	}
+
+	std::unique_ptr<CBaseBot> bot(m_mod->AllocateBot(edict));
+	bot->PostConstruct();
+
+	if (!bot->BecomeHumanPuppet())
+	{
+		smutils->LogError(myself, "TakeOverPlayer: CBasePlayer::PlayerRunCommand can't be hooked on this mod (gamedata offset \"PlayerRunCmd\" missing).");
+		return false; // the unique_ptr destroys the instance and its hooks
+	}
+
+	m_bots.push_back(std::move(bot));
+	smutils->LogMessage(myself, "AFK autopilot took over client #%i (%s).", client, gameplayer->GetName());
+	return true;
+}
+
+bool CExtManager::ReleasePlayer(const int client, const bool byinput)
+{
+	auto it = std::find_if(m_bots.begin(), m_bots.end(), [&client](const std::unique_ptr<CBaseBot>& object) {
+		return object->GetIndex() == client && object->IsHumanPuppet();
+	});
+
+	if (it == m_bots.end())
+	{
+		return false;
+	}
+
+	m_bots.erase(it); // the destructor removes the bot hooks from the human's entity
+
+#ifndef NO_SOURCEPAWN_API
+	if (m_onplayerreleasedforward != nullptr && m_onplayerreleasedforward->GetFunctionCount() > 0)
+	{
+		m_onplayerreleasedforward->PushCell(client);
+		m_onplayerreleasedforward->PushCell(byinput ? 1 : 0);
+		m_onplayerreleasedforward->Execute();
+	}
+#endif // !NO_SOURCEPAWN_API
+
+	return true;
+}
+
+bool CExtManager::IsPlayerTakenOver(const int client) const
+{
+	CBaseBot* bot = GetBotByIndex(client);
+	return bot != nullptr && bot->IsHumanPuppet();
 }
 
 void CExtManager::AddBot(std::string* newbotname, edict_t** newbotedict)
@@ -619,8 +709,24 @@ void CExtManager::RemoveRandomBot(const char* message)
 		return;
 	}
 
-	auto& botptr = m_bots[randomgen->GetRandomInt<size_t>(0U, m_bots.size() - 1)];
-	auto player = playerhelpers->GetGamePlayer(botptr->GetIndex());
+	// never pick a human driven by the AFK autopilot
+	std::vector<CBaseBot*> candidates;
+
+	for (auto& ptr : m_bots)
+	{
+		if (!ptr->IsHumanPuppet())
+		{
+			candidates.push_back(ptr.get());
+		}
+	}
+
+	if (candidates.empty())
+	{
+		return;
+	}
+
+	CBaseBot* bot = candidates[randomgen->GetRandomInt<size_t>(0U, candidates.size() - 1)];
+	auto player = playerhelpers->GetGamePlayer(bot->GetIndex());
 	player->Kick(message);
 }
 
@@ -908,6 +1014,8 @@ void CExtManager::SetupForwards()
 
 	m_onbotenemyvisible = forwards->CreateForward("OnNavBotThreatVisible", ET_Ignore, 3, nullptr,
 		SourceMod::ParamType::Param_Cell, SourceMod::ParamType::Param_Cell, SourceMod::ParamType::Param_Cell);
+	m_onplayerreleasedforward = forwards->CreateForward("OnNavBotPlayerReleased", ET_Ignore, 2, nullptr,
+		SourceMod::ParamType::Param_Cell, SourceMod::ParamType::Param_Cell);
 #endif // !NO_SOURCEPAWN_API
 }
 

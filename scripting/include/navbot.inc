@@ -87,6 +87,33 @@ methodmap NavBotManager
 	 */
 	public static native int GetNavBotCount();
 	/**
+	 * AFK autopilot: lets the bot AI drive a human player's own character. The human's own commands are
+	 * replaced and the client's view follows the bot's aim, until the human gives input (keys, movement or
+	 * mouse) or ReleasePlayer is called; then OnNavBotPlayerReleased is called.
+	 * A player taken over is not a NavBot: IsNavBot returns false and GetNavBotCount does not count it.
+	 *
+	 * @param client	Client index of a human player in game.
+	 * @return			True if the AI took over, false if the client is not a human in game, is already
+	 *					taken over, or the mod can't hook PlayerRunCommand.
+	 * @error			Invalid client index.
+	 */
+	public static native bool TakeOverPlayer(int client);
+	/**
+	 * Gives control back to a human player taken over by TakeOverPlayer.
+	 *
+	 * @param client	Client index.
+	 * @return			True if the player was taken over and is now released.
+	 * @error			Invalid client index.
+	 */
+	public static native bool ReleasePlayer(int client);
+	/**
+	 * Returns true if the client is a human player driven by the bot AI (TakeOverPlayer).
+	 *
+	 * @param client	Client index.
+	 * @error			Invalid client index.
+	 */
+	public static native bool IsPlayerTakenOver(int client);
+	/**
 	 * Gets a NavBot instance by client index.
 	 * @param client  Client index
 	 * @return  NavBot instance or NULL_NAVBOT is a navbot doesn't exists for the given client index.
@@ -145,6 +172,9 @@ public __ext_navbot_SetNTVOptional()
 	/* Manager */
 	MarkNativeAsOptional("NavBotManager.IsNavBot");
 	MarkNativeAsOptional("NavBotManager.GetNavBotCount");
+	MarkNativeAsOptional("NavBotManager.TakeOverPlayer");
+	MarkNativeAsOptional("NavBotManager.ReleasePlayer");
+	MarkNativeAsOptional("NavBotManager.IsPlayerTakenOver");
 	MarkNativeAsOptional("NavBotManager.GetNavBotByIndex");
 	MarkNativeAsOptional("NavBotManager.GetBasePlayer");
 	MarkNativeAsOptional("NavBotManager.AreBotsSupported");

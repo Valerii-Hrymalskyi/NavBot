@@ -97,6 +97,12 @@ CON_COMMAND(sm_navbot_kick, "Removes a Nav Bot from the game.")
 		for (auto& ptr : allbots)
 		{
 			CBaseBot* bot = ptr.get();
+
+			if (bot->IsHumanPuppet()) // never kick a human driven by the AFK autopilot
+			{
+				continue;
+			}
+
 			SourceMod::IGamePlayer* gp = playerhelpers->GetGamePlayer(bot->GetIndex());
 
 			if (gp)
