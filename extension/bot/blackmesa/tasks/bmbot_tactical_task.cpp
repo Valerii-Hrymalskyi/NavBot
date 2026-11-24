@@ -81,6 +81,28 @@ QueryAnswerType CBlackMesaBotTacticalTask::ShouldSeekAndDestroy(CBaseBot* baseBo
 	return ANSWER_NO;
 }
 
+TaskEventResponseResult<CBlackMesaBot> CBlackMesaBotTacticalTask::OnInjured(CBlackMesaBot* bot, const CTakeDamageInfo& info)
+{
+	// Turn towards the player who hurt us: an attacker behind the bot is outside its field of view, so the bot
+	// would keep running away from it (same reaction as the DoD:S bots). Self damage (falling, own rockets)
+	// and damage from the world are ignored.
+	if (bot->GetDifficultyProfile()->GetGameAwareness() >= 15)
+	{
+		CBaseEntity* attacker = info.GetAttacker();
+
+		if (attacker != nullptr && attacker != bot->GetEntity() && UtilHelpers::IsPlayer(attacker))
+		{
+			Vector pos = UtilHelpers::getWorldSpaceCenter(attacker);
+			bot->GetControlInterface()->AimAt(pos, IPlayerController::LOOK_DANGER, 1.5f, "Looking at attacker!");
+
+			CKnownEntity* known = bot->GetSensorInterface()->AddKnownEntity(attacker);
+			known->UpdatePosition();
+		}
+	}
+
+	return TryContinue(PRIORITY_LOW);
+}
+
 TaskEventResponseResult<CBlackMesaBot> CBlackMesaBotTacticalTask::OnNavAreaChanged(CBlackMesaBot* bot, CNavArea* oldArea, CNavArea* newArea)
 {
 	TaskEventResponseResult<CBlackMesaBot> result = botprereqtasks::ImplementPrereqCheck<CBlackMesaBot, CBlackMesaBotTacticalTask, CNavArea, CBlackMesaBotPathCost>(this, bot, newArea);

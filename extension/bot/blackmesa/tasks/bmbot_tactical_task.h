@@ -4,6 +4,7 @@
 #include <sdkports/sdk_timers.h>
 
 class CBlackMesaBot;
+class CTakeDamageInfo;
 
 class CBlackMesaBotTacticalTask : public AITask<CBlackMesaBot>
 {
@@ -16,6 +17,7 @@ public:
 
 	QueryAnswerType ShouldSeekAndDestroy(CBaseBot* me, const CKnownEntity* them) override;
 
+	TaskEventResponseResult<CBlackMesaBot> OnInjured(CBlackMesaBot* bot, const CTakeDamageInfo& info) override;
 	TaskEventResponseResult<CBlackMesaBot> OnNavAreaChanged(CBlackMesaBot* bot, CNavArea* oldArea, CNavArea* newArea) override;
 	TaskEventResponseResult<CBlackMesaBot> OnPluginCommand(CBlackMesaBot* bot, IEventListener::PluginCommandTypes type, const IEventListener::PluginCommandData& data) override;
 
